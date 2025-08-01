@@ -16,7 +16,7 @@ st.set_page_config(
 )
 
 # Configure Gemini API
-api_key = st.secrets["gemini_key"]
+api_key = st.secrets["mykey"]
 genai.configure(api_key=api_key)
 
 # API Configuration - Get from Streamlit secrets
