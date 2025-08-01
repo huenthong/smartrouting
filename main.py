@@ -2,10 +2,17 @@ import os
 import streamlit as st
 import requests
 import pandas as pd
-#import plotly.express as px
-#import plotly.graph_objects as go
 from datetime import datetime
 import json
+
+# Try to import plotly, handle if not available
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    st.error("📊 Plotly not installed. Please run: `pip install plotly`")
 
 # Page config
 st.set_page_config(
@@ -15,16 +22,32 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Configure Gemini API
-api_key = st.secrets["mykey"]
-#genai.configure(api_key=api_key)
+# API Configuration with manual input
+if 'api_url' not in st.session_state:
+    st.session_state.api_url = "http://localhost:8000"
 
-# API Configuration - Get from Streamlit secrets
-#try:
-    #API_BASE_URL = st.secrets["API_BASE_URL"]
-#except:
-    #API_BASE_URL = "https://your-api-url.loca.lt"
-    #st.error("⚠️ API_BASE_URL not found in secrets. Please configure in Streamlit settings.")
+# Sidebar API URL input
+st.sidebar.title("🔗 API Configuration")
+api_url_input = st.sidebar.text_input(
+    "API Base URL:", 
+    value=st.session_state.api_url,
+    placeholder="https://your-tunnel-url.loca.lt"
+)
+
+# URL examples
+with st.sidebar.expander("💡 URL Examples"):
+    st.write("**Local:**")
+    st.code("http://localhost:8000")
+    st.write("**LocalTunnel:**")
+    st.code("https://abc123.loca.lt")
+    st.write("**Ngrok:**")
+    st.code("https://abc123.ngrok.io")
+
+if st.sidebar.button("Update API URL"):
+    st.session_state.api_url = api_url_input.strip()
+    st.sidebar.success("✅ URL Updated!")
+
+API_BASE_URL = st.session_state.api_url
 
 def main():
     st.title("🤖 Smart Routing Engine Dashboard")
@@ -86,9 +109,31 @@ def show_overview():
     with col4:
         st.metric("🚨 SLA Breaches", "3", "-2")
     
-    # Recent activity
+    # Recent activity - Get from API
     st.subheader("🔴 Live Activity Feed")
     
+    try:
+        response = requests.get(f"{API_BASE_URL}/api/v1/analytics/recent-routings", timeout=5)
+        if response.status_code == 200:
+            routings = response.json().get("routings", [])
+            if routings:
+                for routing in routings[:5]:  # Show latest 5
+                    timestamp = datetime.fromisoformat(routing["assigned_at"].replace("Z", "+00:00"))
+                    time_str = timestamp.strftime("%H:%M")
+                    alps_score = routing.get("alps_score")
+                    score_text = f" (ALPS: {alps_score})" if alps_score else ""
+                    
+                    st.write(f"✅ **{time_str}** - {routing['intent'].title()} → {routing['agent_id']}{score_text}")
+            else:
+                st.info("No recent routing data available")
+        else:
+            # Fallback to demo data
+            show_demo_activity()
+    except:
+        show_demo_activity()
+
+def show_demo_activity():
+    """Show demo activity when API is not available"""
     activity_data = [
         {"time": "14:32", "message": "New sales lead → Sarah Chen (ALPS: 85.2)", "status": "✅"},
         {"time": "14:30", "message": "Urgent support → John Smith (Escalated)", "status": "⚠️"},
@@ -216,9 +261,60 @@ def show_agent_status():
     
     except Exception as e:
         st.error(f"Error connecting to API: {e}")
+        st.info("Showing demo data...")
+        show_demo_agent_status()
+
+def show_demo_agent_status():
+    """Show demo agent status when API is not available"""
+    st.subheader("💼 Sales Team")
+    
+    demo_sales = [
+        {"name": "Sarah Chen", "active_chats": 3, "max_chats": 10, "performance": 92},
+        {"name": "Mike Johnson", "active_chats": 7, "max_chats": 10, "performance": 87},
+        {"name": "Emma Davis", "active_chats": 2, "max_chats": 8, "performance": 91}
+    ]
+    
+    for agent in demo_sales:
+        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+        
+        with col1:
+            load_pct = (agent["active_chats"] / agent["max_chats"]) * 100
+            if load_pct >= 80:
+                status_icon = "🔴"
+                status = "Overloaded"
+            elif load_pct >= 60:
+                status_icon = "🟡"
+                status = "Busy"
+            else:
+                status_icon = "🟢"
+                status = "Available"
+            
+            st.write(f"{status_icon} **{agent['name']}**")
+            st.progress(load_pct / 100, text=f"{status} ({load_pct:.0f}%)")
+        
+        with col2:
+            st.metric("Chats", f"{agent['active_chats']}/{agent['max_chats']}")
+        
+        with col3:
+            st.metric("Performance", f"{agent['performance']}%")
+        
+        with col4:
+            if load_pct >= 80:
+                st.error("Overloaded")
+            elif load_pct >= 60:
+                st.warning("Busy")
+            else:
+                st.success("Ready")
 
 def show_analytics():
     st.header("📈 Analytics & Insights")
+    
+    if not PLOTLY_AVAILABLE:
+        st.error("📊 Plotly is required for analytics. Please install it:")
+        st.code("pip install plotly")
+        st.info("Showing text-based analytics instead...")
+        show_text_analytics()
+        return
     
     # Date range selector
     col1, col2 = st.columns(2)
@@ -272,6 +368,33 @@ def show_analytics():
                      markers=True)
         st.plotly_chart(fig, use_container_width=True)
 
+def show_text_analytics():
+    """Show text-based analytics when plotly is not available"""
+    st.subheader("📊 Message Distribution")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Intent Distribution:**")
+        st.write("• Sales: 78 messages (61.4%)")
+        st.write("• Support: 49 messages (38.6%)")
+        
+        st.write("**Priority Distribution:**")
+        st.write("• High: 23 leads (23.0%)")
+        st.write("• Medium: 45 leads (45.0%)")
+        st.write("• Low: 32 leads (32.0%)")
+    
+    with col2:
+        st.write("**ALPS Score Stats:**")
+        st.write("• Average: 78.4")
+        st.write("• Highest: 92.1")
+        st.write("• Lowest: 65.3")
+        
+        st.write("**Daily Volume (Last 7 days):**")
+        st.write("• Average: 54 messages/day")
+        st.write("• Peak: 71 messages")
+        st.write("• Trend: ↗️ Increasing")
+
 def show_api_test():
     st.header("⚙️ API Test & Configuration")
     
@@ -286,6 +409,7 @@ def show_api_test():
         "Health Check": f"{API_BASE_URL}/health",
         "Route Message": f"{API_BASE_URL}/api/v1/route",
         "Agent Status": f"{API_BASE_URL}/api/v1/agents/status",
+        "Recent Routings": f"{API_BASE_URL}/api/v1/analytics/recent-routings",
         "Chatwoot Webhook": f"{API_BASE_URL}/api/v1/webhook/chatwoot",
         "API Documentation": f"{API_BASE_URL}/docs"
     }
@@ -300,6 +424,9 @@ Chatwoot Webhook URL:
 
 API Documentation:
 {API_BASE_URL}/docs
+
+Streamlit Dashboard:
+http://localhost:8501
     """)
 
 def test_all_endpoints():
@@ -309,6 +436,7 @@ def test_all_endpoints():
     endpoints = [
         ("Health", "GET", "/health"),
         ("Agent Status", "GET", "/api/v1/agents/status"),
+        ("Recent Routings", "GET", "/api/v1/analytics/recent-routings"),
     ]
     
     for name, method, path in endpoints:
@@ -318,10 +446,13 @@ def test_all_endpoints():
             
             if response.status_code == 200:
                 st.success(f"✅ {name}: OK")
+                if name == "Health":
+                    data = response.json()
+                    st.write(f"   Status: {data.get('status')}")
             else:
                 st.error(f"❌ {name}: {response.status_code}")
         except Exception as e:
-            st.error(f"❌ {name}: Connection failed")
+            st.error(f"❌ {name}: Connection failed - {str(e)}")
 
 def route_test_message(message: str, channel: str, is_repeat: bool = False):
     """Route a test message through the API"""
@@ -382,29 +513,39 @@ def display_routing_result(result):
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            # ALPS score gauge
-            fig = go.Figure(go.Indicator(
-                mode = "gauge+number",
-                value = alps_score,
-                domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {'text': "ALPS Score"},
-                gauge = {
-                    'axis': {'range': [None, 100]},
-                    'bar': {'color': "darkblue"},
-                    'steps': [
-                        {'range': [0, 50], 'color': "lightgray"},
-                        {'range': [50, 75], 'color': "yellow"},
-                        {'range': [75, 100], 'color': "green"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': 90
+            # ALPS score gauge (only if plotly available)
+            if PLOTLY_AVAILABLE:
+                fig = go.Figure(go.Indicator(
+                    mode = "gauge+number",
+                    value = alps_score,
+                    domain = {'x': [0, 1], 'y': [0, 1]},
+                    title = {'text': "ALPS Score"},
+                    gauge = {
+                        'axis': {'range': [None, 100]},
+                        'bar': {'color': "darkblue"},
+                        'steps': [
+                            {'range': [0, 50], 'color': "lightgray"},
+                            {'range': [50, 75], 'color': "yellow"},
+                            {'range': [75, 100], 'color': "green"}
+                        ],
+                        'threshold': {
+                            'line': {'color': "red", 'width': 4},
+                            'thickness': 0.75,
+                            'value': 90
+                        }
                     }
-                }
-            ))
-            fig.update_layout(height=300)
-            st.plotly_chart(fig, use_container_width=True)
+                ))
+                fig.update_layout(height=300)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                # Text-based score display
+                st.metric("ALPS Score", f"{alps_score}/100")
+                if alps_score >= 80:
+                    st.success("🟢 Excellent Score")
+                elif alps_score >= 60:
+                    st.warning("🟡 Good Score")
+                else:
+                    st.error("🔴 Needs Improvement")
         
         with col2:
             # Priority indicator
